@@ -205,7 +205,9 @@ void tickit_window_show(TickitWindow *window)
 {
   window->is_visible = true;
   if(window->parent) {
-    /* TODO: Focused child stuff. */
+    if(!window->parent && (window->focused_child || window->is_focused)) {
+      window->focused_child = window;
+    }
   }
   tickit_window_expose(window, NULL);
 }
@@ -215,8 +217,11 @@ void tickit_window_hide(TickitWindow *window)
   window->is_visible = false;
 
   if(window->parent) {
-    /* TODO: Focused child stuff. */
-    tickit_window_expose(window->parent, &window->rect);
+    TickitWindow *parent = window->parent;
+    if(parent->focused_child && (parent->focused_child == window)) {
+      parent->focused_child = NULL;
+    }
+    tickit_window_expose(parent, &window->rect);
   }
 }
 
