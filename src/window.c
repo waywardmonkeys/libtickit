@@ -38,7 +38,7 @@ struct TickitWindow {
   void *on_geometry_changed_data;
 };
 
-struct TickitRootWindow {
+typedef struct TickitRootWindow {
   TickitWindow window;
 
   TickitTerm *term;
@@ -46,7 +46,7 @@ struct TickitRootWindow {
   bool needs_expose;
   bool needs_restore;
   bool needs_later_processing;
-};
+} TickitRootWindow;
 
 static void _request_restore(TickitRootWindow *root);
 static void _request_later_processing(TickitRootWindow *root);
@@ -86,7 +86,7 @@ static TickitWindow* new_window(TickitWindow *parent, int top, int left, int lin
   return window;
 }
 
-TickitRootWindow* tickit_window_new_root(TickitTerm *term)
+TickitWindow* tickit_window_new_root(TickitTerm *term)
 {
   int lines, cols;
   tickit_term_get_size(term, &lines, &cols);
@@ -107,10 +107,10 @@ TickitRootWindow* tickit_window_new_root(TickitTerm *term)
     tickit_window_destroy(ROOT_AS_WINDOW(root));
     return NULL;
   }
-  return root;
+  return ROOT_AS_WINDOW(root);
 }
 
-TickitRootWindow *tickit_window_get_root(TickitWindow *window)
+static TickitRootWindow *_get_root(TickitWindow *window)
 {
   TickitWindow *root = window;
   while(root->parent) {
@@ -276,7 +276,7 @@ void tickit_window_reposition(TickitWindow *window, int top, int left)
 {
   tickit_window_set_geometry(window, top, left, window->rect.lines, window->rect.cols);
   if(window->is_focused) {
-    _request_restore(tickit_window_get_root(window));
+    _request_restore(_get_root(window));
   }
 }
 
