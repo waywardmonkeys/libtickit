@@ -30,6 +30,7 @@ struct TickitWindow {
   struct TickitWindowCursorData cursor;
   bool is_visible;
   bool is_focused;
+  bool steal_input;
 
   /* Callbacks */
   TickitWindowExposeFn *on_expose;
@@ -68,6 +69,7 @@ static void init_window(TickitWindow *window, TickitWindow *parent, int top, int
   window->cursor.visible = false;
   window->is_visible = false;
   window->is_focused = false;
+  window->steal_input = false;
 
   window->on_expose = NULL;
   window->on_expose_data = NULL;
@@ -151,7 +153,7 @@ TickitWindow *tickit_window_new_popup(TickitWindow *parent, int top, int left, i
   }
   TickitWindow *window = new_window(root, top, left, lines, cols);
   /* TODO: Add child to root (front of child list). */
-  /* TODO: Steal input. */
+  window->steal_input = true;
   return window;
 }
 
