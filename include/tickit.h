@@ -150,6 +150,8 @@ static inline int tickit_rect_bottom(const TickitRect *rect)
 static inline int tickit_rect_right (const TickitRect *rect)
 { return rect->left + rect->cols; }
 
+void tickit_rect_translate(TickitRect *rect, int downward, int rightward);
+
 bool tickit_rect_intersect(TickitRect *dst, const TickitRect *a, const TickitRect *b);
 
 bool tickit_rect_intersects(const TickitRect *a, const TickitRect *b);
