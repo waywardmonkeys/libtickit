@@ -6,12 +6,25 @@
  * Event handling.
  * Focus handling.
  * The "later" system that lets us trigger actual changes.
- * Actual child management.
- * Deferred child / parent updating.
  */
 
 #define ROOT_AS_WINDOW(root) (TickitWindow*)root
 #define WINDOW_AS_ROOT(window) (TickitRootWindow*)window
+
+typedef enum {
+  TICKIT_HIERARCHY_INSERT_FIRST,
+  TICKIT_HIERARCHY_INSERT_LAST,
+  TICKIT_HIERARCHY_REMOVE,
+  TICKIT_HIERARCHY_RAISE,
+  TICKIT_HIERARCHY_RAISE_FRONT,
+  TICKIT_HIERARCHY_LOWER,
+  TICKIT_HIERARCHY_LOWER_BACK
+} TickitHierarchyChangeType;
+
+typedef enum {
+  TICKIT_IMMEDIATE,
+  TICKIT_DEFER
+} TickitWhen;
 
 struct TickitWindowCursorData {
   int line;
@@ -39,18 +52,31 @@ struct TickitWindow {
   void *on_geometry_changed_data;
 };
 
-typedef struct TickitRootWindow {
+typedef struct HierarchyChange HierarchyChange;
+struct HierarchyChange {
+  TickitHierarchyChangeType change;
+  TickitWindow *parent;
+  TickitWindow *window;
+  HierarchyChange *next;
+};
+
+typedef struct TickitRootWindow TickitRootWindow;
+struct TickitRootWindow {
   TickitWindow window;
 
   TickitTerm *term;
   TickitRectSet *damage;
+  HierarchyChange *hierarchy_changes;
   bool needs_expose;
   bool needs_restore;
   bool needs_later_processing;
-} TickitRootWindow;
+};
 
 static void _request_restore(TickitRootWindow *root);
 static void _request_later_processing(TickitRootWindow *root);
+static void _request_hierarchy_change(TickitHierarchyChangeType, TickitWindow*, TickitWhen);
+static void _do_hierarchy_change(TickitHierarchyChangeType change, TickitWindow *parent, TickitWindow *window);
+static void _purge_hierarchy_changes(TickitWindow *window);
 
 static void init_window(TickitWindow *window, TickitWindow *parent, int top, int left, int lines, int cols)
 {
@@ -100,6 +126,7 @@ TickitWindow* tickit_window_new_root(TickitTerm *term)
   init_window(ROOT_AS_WINDOW(root), NULL, 0, 0, lines, cols);
 
   root->term = term;
+  root->hierarchy_changes = NULL;
   root->needs_expose = false;
   root->needs_restore = false;
   root->needs_later_processing = false;
@@ -124,14 +151,14 @@ static TickitRootWindow *_get_root(TickitWindow *window)
 TickitWindow *tickit_window_new_subwindow(TickitWindow *parent, int top, int left, int lines, int cols)
 {
   TickitWindow *window = new_window(parent, top, left, lines, cols);
-  /* TODO: Add child to parent (end of child list). */
+  _request_hierarchy_change(TICKIT_HIERARCHY_INSERT_LAST, window, TICKIT_DEFER);
   return window;
 }
 
 TickitWindow *tickit_window_new_hidden_subwindow(TickitWindow *parent, int top, int left, int lines, int cols)
 {
   TickitWindow *window = new_window(parent, top, left, lines, cols);
-  /* TODO: Add child to parent (end of child list). */
+  _request_hierarchy_change(TICKIT_HIERARCHY_INSERT_LAST, window, TICKIT_DEFER);
   window->is_visible = false;
   return window;
 }
@@ -139,7 +166,7 @@ TickitWindow *tickit_window_new_hidden_subwindow(TickitWindow *parent, int top, 
 TickitWindow *tickit_window_new_float(TickitWindow *parent, int top, int left, int lines, int cols)
 {
   TickitWindow *window = new_window(parent, top, left, lines, cols);
-  /* TODO: Add child to parent (front of child list). */
+  _request_hierarchy_change(TICKIT_HIERARCHY_INSERT_FIRST, window, TICKIT_DEFER);
   return window;
 }
 
@@ -152,7 +179,7 @@ TickitWindow *tickit_window_new_popup(TickitWindow *parent, int top, int left, i
     root = root->parent;
   }
   TickitWindow *window = new_window(root, top, left, lines, cols);
-  /* TODO: Add child to root (front of child list). */
+  _request_hierarchy_change(TICKIT_HIERARCHY_INSERT_FIRST, window, TICKIT_DEFER);
   window->steal_input = true;
   return window;
 }
@@ -166,11 +193,16 @@ void tickit_window_destroy(TickitWindow *window)
   window->on_geometry_changed = NULL;
   window->on_geometry_changed_data = NULL;
 
-  /* TODO: Destroy children */
-  /* TODO: Kill pending geometry changes */
+  TickitWindow *child = window->children;
+  while(child) {
+   tickit_window_destroy(child);
+   child = window->children;
+  }
+
+  _purge_hierarchy_changes(window);
 
   if(window->parent) {
-    /* TODO: Remove from parent's children. */
+    _request_hierarchy_change(TICKIT_HIERARCHY_REMOVE, window, TICKIT_IMMEDIATE);
   }
 
   /* Root cleanup */
@@ -185,22 +217,22 @@ void tickit_window_destroy(TickitWindow *window)
 
 void tickit_window_raise(TickitWindow *window)
 {
-  /* TODO: Reorder child to be earlier. */
+  _request_hierarchy_change(TICKIT_HIERARCHY_RAISE, window, TICKIT_DEFER);
 }
 
 void tickit_window_raise_to_front(TickitWindow *window)
 {
-  /* TODO: Reorder child to be first. */
+  _request_hierarchy_change(TICKIT_HIERARCHY_RAISE_FRONT, window, TICKIT_DEFER);
 }
 
 void tickit_window_lower(TickitWindow *window)
 {
-  /* TODO: Reorder child to be later. */
+  _request_hierarchy_change(TICKIT_HIERARCHY_LOWER, window, TICKIT_DEFER);
 }
 
 void tickit_window_lower_to_back(TickitWindow *window)
 {
-  /* TODO: Reorder child to be last. */
+  _request_hierarchy_change(TICKIT_HIERARCHY_LOWER_BACK, window, TICKIT_DEFER);
 }
 
 void tickit_window_show(TickitWindow *window)
@@ -433,7 +465,16 @@ static void _do_later_processing(TickitRootWindow *root)
 {
   root->needs_later_processing = false;
 
-  /* TODO: Do deferred geometry changes. */
+  if(root->hierarchy_changes) {
+    HierarchyChange *req = root->hierarchy_changes;
+    while(req) {
+       _do_hierarchy_change(req->change, req->parent, req->window);
+       HierarchyChange *next = req->next;
+       free(req);
+       req = next;
+    }
+    root->hierarchy_changes = NULL;
+  }
 
   if(root->needs_expose) {
     root->needs_expose = false;
@@ -465,4 +506,160 @@ static void _do_later_processing(TickitRootWindow *root)
     root->needs_restore = false;
     _do_restore(root);
   }
+}
+
+static void _do_hierarchy_insert_first(TickitWindow *parent, TickitWindow *window)
+{
+  window->next = parent->children;
+  parent->children = window;
+}
+
+static void _do_hierarchy_insert_last(TickitWindow *parent, TickitWindow *window)
+{
+  TickitWindow *chain = parent->children;
+  if(!chain) {
+    parent->children = window;
+  } else {
+    while(chain->next != NULL) {
+      chain = chain->next;
+    }
+    chain->next = window;
+  }
+}
+
+static void _do_hierarchy_remove(TickitWindow *parent, TickitWindow *window)
+{
+  if(parent->children == window) {
+    parent->children = window->next;
+  } else {
+    for(TickitWindow *child = parent->children; child; child = child->next) {
+      if(child->next == window) {
+        child->next = window->next;
+        break;
+      }
+    }
+  }
+}
+
+static void _do_hierarchy_raise(TickitWindow *parent, TickitWindow *window)
+{
+  /* If not already at the front */
+  if(parent->children != window) {
+    TickitWindow *prev = NULL;
+    for(TickitWindow *curr = parent->children; curr; curr = curr->next) {
+      if(curr->next == window) {
+        /* We have:
+         *  prev -> curr -> window
+         * we want:
+         *  prev -> window -> curr */
+        prev->next = window;
+        curr->next = window->next;
+        window->next = curr;
+        break;
+      }
+      prev = curr;
+    }
+  }
+}
+
+static void _do_hierarchy_lower(TickitWindow *parent, TickitWindow *window)
+{
+  if(!window->next) {
+    /* Already at the end */
+  } else if(parent->children == window) {
+    /* First in the list and we know it has children after it. */
+    /* A -> B -> C */
+    TickitWindow *successor = window->next;
+    parent->children = window->next; /* B -> C, A -> B */
+    window->next = successor->next; /* B -> C, A -> C */
+    successor->next = window; /* B -> A -> C */
+  } else {
+    for(TickitWindow *child = parent->children; child; child = child->next) {
+      if(child->next == window) {
+        TickitWindow *successor = window->next;
+        child->next = window->next;
+        window->next = successor->next;
+        successor->next = window;
+        break;
+      }
+    }
+  }
+}
+
+static void _do_hierarchy_change(TickitHierarchyChangeType change, TickitWindow *parent, TickitWindow *window)
+{
+  switch(change) {
+    case TICKIT_HIERARCHY_INSERT_FIRST:
+      _do_hierarchy_insert_first(parent, window);
+      break;
+    case TICKIT_HIERARCHY_INSERT_LAST:
+      _do_hierarchy_insert_last(parent, window);
+      break;
+    case TICKIT_HIERARCHY_REMOVE:
+      _do_hierarchy_remove(parent, window);
+      break;
+    case TICKIT_HIERARCHY_RAISE:
+      _do_hierarchy_raise(parent, window);
+      break;
+    case TICKIT_HIERARCHY_RAISE_FRONT:
+      _do_hierarchy_remove(parent, window);
+      _do_hierarchy_insert_first(parent, window);
+      break;
+    case TICKIT_HIERARCHY_LOWER:
+      _do_hierarchy_lower(parent, window);
+      break;
+    case TICKIT_HIERARCHY_LOWER_BACK:
+      _do_hierarchy_remove(parent, window);
+      _do_hierarchy_insert_last(parent, window);
+      break;
+  }
+}
+
+static void _request_hierarchy_change(TickitHierarchyChangeType change, TickitWindow *window, TickitWhen when)
+{
+  if(!window->parent) {
+    /* Can't do anything to the root window */
+    return;
+  }
+  switch(when) {
+    case TICKIT_IMMEDIATE: {
+      _do_hierarchy_change(change, window->parent, window);
+      break;
+    }
+    case TICKIT_DEFER: {
+      HierarchyChange *req = malloc(sizeof(HierarchyChange));
+      req->change = change;
+      req->parent = window->parent;
+      req->window = window;
+      req->next = NULL;
+      TickitRootWindow *root = _get_root(window);
+      if(!root->hierarchy_changes) {
+        root->hierarchy_changes = req;
+      } else {
+        HierarchyChange *chain = root->hierarchy_changes;
+        while(chain->next) {
+          chain = chain->next;
+        }
+        chain->next = req;
+      }
+      break;
+    }
+  }
+}
+
+static void _purge_hierarchy_changes(TickitWindow *window)
+{
+  TickitRootWindow *root = _get_root(window);
+  if(!root->hierarchy_changes) {
+    return;
+  }
+  /* First, get rid of anything starting from head */
+  while((root->hierarchy_changes->parent == window) || (root->hierarchy_changes->window == window)) {
+    HierarchyChange *req = root->hierarchy_changes;
+    root->hierarchy_changes = req->next;
+    free(req);
+  }
+  /* Now, iterate through the list removing any other nodes */
+  HierarchyChange *chain = root->hierarchy_changes;
+  /* TODO: Finish */
 }
