@@ -93,7 +93,7 @@ static void init_window(TickitWindow *window, TickitWindow *parent, int top, int
   window->cursor.col = 0;
   window->cursor.shape = TICKIT_TERM_CURSORSHAPE_BLOCK;
   window->cursor.visible = false;
-  window->is_visible = false;
+  window->is_visible = true;
   window->is_focused = false;
   window->steal_input = false;
 
