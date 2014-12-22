@@ -595,9 +595,13 @@ static void _do_hierarchy_change(TickitHierarchyChangeType change, TickitWindow 
     case TICKIT_HIERARCHY_INSERT_LAST:
       _do_hierarchy_insert_last(parent, window);
       break;
-    case TICKIT_HIERARCHY_REMOVE:
-      _do_hierarchy_remove(parent, window);
-      break;
+    case TICKIT_HIERARCHY_REMOVE: {
+        _do_hierarchy_remove(parent, window);
+        if(parent->focused_child && parent->focused_child == window) {
+          parent->focused_child = NULL;
+        }
+        break;
+      }
     case TICKIT_HIERARCHY_RAISE:
       _do_hierarchy_raise(parent, window);
       break;
