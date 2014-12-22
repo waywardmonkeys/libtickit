@@ -461,8 +461,16 @@ static void _do_restore(TickitRootWindow *root)
   tickit_term_flush(root->term);
 }
 
-static void _do_later_processing(TickitRootWindow *root)
+void tickit_window_tick(TickitWindow *window)
 {
+  if(window->parent) {
+    // Can't tick non-root.
+    return;
+  }
+  TickitRootWindow *root = WINDOW_AS_ROOT(window);
+  if(!root->needs_later_processing) {
+    return;
+  }
   root->needs_later_processing = false;
 
   if(root->hierarchy_changes) {
