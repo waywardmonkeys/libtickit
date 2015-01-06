@@ -20,6 +20,9 @@ TickitWindow *tickit_window_new_hidden_subwindow(TickitWindow *parent, int top, 
 TickitWindow *tickit_window_new_float(TickitWindow *parent, int top, int left, int lines, int cols);
 TickitWindow *tickit_window_new_popup(TickitWindow *parent, int top, int left, int lines, int cols);
 
+TickitWindow *tickit_window_parent(const TickitWindow *window);
+TickitWindow *tickit_window_root(const TickitWindow *window);
+
 void tickit_window_destroy(TickitWindow *window);
 
 void tickit_window_tick(TickitWindow *window);
@@ -45,6 +48,8 @@ int tickit_window_left(const TickitWindow *window);
 int tickit_window_abs_left(const TickitWindow *window);
 int tickit_window_lines(const TickitWindow *window);
 int tickit_window_cols(const TickitWindow *window);
+int tickit_window_bottom(const TickitWindow *window);
+int tickit_window_right(const TickitWindow *window);
 
 void tickit_window_resize(TickitWindow *window, int lines, int cols);
 void tickit_window_reposition(TickitWindow *window, int top, int left);

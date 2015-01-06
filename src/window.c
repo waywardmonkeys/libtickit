@@ -145,9 +145,9 @@ TickitWindow* tickit_window_new_root(TickitTerm *term)
   return ROOT_AS_WINDOW(root);
 }
 
-static TickitRootWindow *_get_root(TickitWindow *window)
+static TickitRootWindow *_get_root(const TickitWindow *window)
 {
-  TickitWindow *root = window;
+  const TickitWindow *root = window;
   while(root->parent) {
     root = root->parent;
   }
@@ -188,6 +188,16 @@ TickitWindow *tickit_window_new_popup(TickitWindow *parent, int top, int left, i
   _request_hierarchy_change(TICKIT_HIERARCHY_INSERT_FIRST, window, TICKIT_DEFER);
   window->steal_input = true;
   return window;
+}
+
+TickitWindow *tickit_window_parent(const TickitWindow *window)
+{
+  return window->parent;
+}
+
+TickitWindow *tickit_window_root(const TickitWindow *window)
+{
+  return ROOT_AS_WINDOW(_get_root(window));
 }
 
 void tickit_window_destroy(TickitWindow *window)
@@ -312,6 +322,16 @@ int tickit_window_lines(const TickitWindow *window)
 int tickit_window_cols(const TickitWindow *window)
 {
   return window->rect.cols;
+}
+
+int tickit_window_bottom(const TickitWindow *window)
+{
+  return window->rect.top + window->rect.lines;
+}
+
+int tickit_window_right(const TickitWindow *window)
+{
+  return window->rect.left + window->rect.cols;
 }
 
 void tickit_window_resize(TickitWindow *window, int lines, int cols)
